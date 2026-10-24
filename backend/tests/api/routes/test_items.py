@@ -79,6 +79,70 @@ def test_read_items(
     assert len(content["data"]) >= 2
 
 
+def test_read_items_search_by_title_case_insensitive(
+    client: TestClient, superuser_token_headers: dict[str, str], db: Session
+) -> None:
+    search_term = f"Needle{uuid.uuid4().hex}"
+    matching_item = create_random_item(db, title=f"Prefix {search_term.lower()} Suffix")
+    create_random_item(db, title="Unrelated item")
+
+    response = client.get(
+        f"{settings.API_V1_STR}/items/",
+        headers=superuser_token_headers,
+        params={"q": search_term.upper()},
+    )
+
+    assert response.status_code == 200
+    content = response.json()
+    assert content["count"] == 1
+    assert [item["id"] for item in content["data"]] == [str(matching_item.id)]
+
+
+def test_read_items_search_no_match(
+    client: TestClient, superuser_token_headers: dict[str, str], db: Session
+) -> None:
+    create_random_item(db)
+
+    response = client.get(
+        f"{settings.API_V1_STR}/items/",
+        headers=superuser_token_headers,
+        params={"q": f"missing-{uuid.uuid4().hex}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"data": [], "count": 0}
+
+
+def test_read_items_search_with_pagination(
+    client: TestClient, superuser_token_headers: dict[str, str], db: Session
+) -> None:
+    search_term = f"Page{uuid.uuid4().hex}"
+    for index in range(3):
+        create_random_item(db, title=f"{search_term} {index}")
+    create_random_item(db)
+
+    all_response = client.get(
+        f"{settings.API_V1_STR}/items/",
+        headers=superuser_token_headers,
+        params={"q": search_term},
+    )
+    assert all_response.status_code == 200
+    all_content = all_response.json()
+    assert all_content["count"] == 3
+    assert len(all_content["data"]) == 3
+
+    response = client.get(
+        f"{settings.API_V1_STR}/items/",
+        headers=superuser_token_headers,
+        params={"q": search_term, "skip": 1, "limit": 1},
+    )
+
+    assert response.status_code == 200
+    content = response.json()
+    assert content["count"] == 3
+    assert content["data"] == [all_content["data"][1]]
+
+
 def test_update_item(
     client: TestClient, superuser_token_headers: dict[str, str], db: Session
 ) -> None:

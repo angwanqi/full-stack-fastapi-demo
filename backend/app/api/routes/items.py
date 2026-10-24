@@ -12,34 +12,31 @@ router = APIRouter(prefix="/items", tags=["items"])
 
 @router.get("/", response_model=ItemsPublic)
 def read_items(
-    session: SessionDep, current_user: CurrentUser, skip: int = 0, limit: int = 100
+    session: SessionDep,
+    current_user: CurrentUser,
+    skip: int = 0,
+    limit: int = 100,
+    q: str | None = None,
 ) -> Any:
     """
     Retrieve items.
     """
 
-    if current_user.is_superuser:
-        count_statement = select(func.count()).select_from(Item)
-        count = session.exec(count_statement).one()
-        statement = (
-            select(Item).order_by(col(Item.created_at).desc()).offset(skip).limit(limit)
-        )
-        items = session.exec(statement).all()
-    else:
-        count_statement = (
-            select(func.count())
-            .select_from(Item)
-            .where(Item.owner_id == current_user.id)
-        )
-        count = session.exec(count_statement).one()
-        statement = (
-            select(Item)
-            .where(Item.owner_id == current_user.id)
-            .order_by(col(Item.created_at).desc())
-            .offset(skip)
-            .limit(limit)
-        )
-        items = session.exec(statement).all()
+    count_statement = select(func.count()).select_from(Item)
+    statement = select(Item)
+    if not current_user.is_superuser:
+        count_statement = count_statement.where(Item.owner_id == current_user.id)
+        statement = statement.where(Item.owner_id == current_user.id)
+    if q:
+        title_filter = col(Item.title).ilike(f"%{q}%")
+        count_statement = count_statement.where(title_filter)
+        statement = statement.where(title_filter)
+
+    count = session.exec(count_statement).one()
+    statement = (
+        statement.order_by(col(Item.created_at).desc()).offset(skip).limit(limit)
+    )
+    items = session.exec(statement).all()
 
     items_public = [ItemPublic.model_validate(item) for item in items]
     return ItemsPublic(data=items_public, count=count)
