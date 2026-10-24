@@ -26,30 +26,45 @@ jobs:
 
       - name: Build Arguments
         id: build_args
-        run: |
-          ARGS="REPO: ${{ github.repository }}
-          REQUEST_SOURCE: ${{ github.event_name }}
-          THREAD_ID: ${{ github.event.comment.node_id }}
+        # Untrusted event fields are passed via env, never interpolated into
+        # the shell script, so comment text cannot inject commands.
+        env:
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMENT_NODE_ID: ${{ github.event.comment.node_id }}
           COMMENT_ID: ${{ github.event.comment.id }}
-          AUTHOR: ${{ github.event.comment.user.login }}
-          BODY: ${{ github.event.comment.body }}
-          URL: ${{ github.event.comment.html_url }}
+          COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          COMMENT_URL: ${{ github.event.comment.html_url }}
+          REVIEW_ID: ${{ github.event.comment.pull_request_review_id }}
+          IN_REPLY_TO_ID: ${{ github.event.comment.in_reply_to_id }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           IS_PR: ${{ github.event.issue.pull_request != null || github.event_name == 'pull_request_review_comment' }}
-          ISSUE_OR_PR_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}"
+        run: |
+          # Random delimiter so a crafted comment body cannot terminate the
+          # value early and inject additional step outputs.
+          delimiter="QODER_ARGS_$(openssl rand -hex 16)"
 
-          if [ -n "${{ github.event.comment.pull_request_review_id }}" ]; then
-            ARGS="$ARGS
-          REVIEW_ID: ${{ github.event.comment.pull_request_review_id }}"
-          fi
-
-          if [ -n "${{ github.event.comment.in_reply_to_id }}" ]; then
-            ARGS="$ARGS
-          REPLY_TO_COMMENT_ID: ${{ github.event.comment.in_reply_to_id }}"
-          fi
-
-          echo "args<<EOF" >> $GITHUB_OUTPUT
-          echo "$ARGS" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          {
+            echo "args<<${delimiter}"
+            printf 'REPO: %s\n' "$REPOSITORY"
+            printf 'REQUEST_SOURCE: %s\n' "$EVENT_NAME"
+            printf 'THREAD_ID: %s\n' "$COMMENT_NODE_ID"
+            printf 'COMMENT_ID: %s\n' "$COMMENT_ID"
+            printf 'AUTHOR: %s\n' "$COMMENT_AUTHOR"
+            printf 'BODY: %s\n' "$COMMENT_BODY"
+            printf 'URL: %s\n' "$COMMENT_URL"
+            printf 'IS_PR: %s\n' "$IS_PR"
+            printf 'ISSUE_OR_PR_NUMBER: %s\n' "${ISSUE_NUMBER:-$PR_NUMBER}"
+            if [ -n "$REVIEW_ID" ]; then
+              printf 'REVIEW_ID: %s\n' "$REVIEW_ID"
+            fi
+            if [ -n "$IN_REPLY_TO_ID" ]; then
+              printf 'REPLY_TO_COMMENT_ID: %s\n' "$IN_REPLY_TO_ID"
+            fi
+            echo "${delimiter}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Run Qoder Assistant
         uses: QoderAI/qoder-action@v0
